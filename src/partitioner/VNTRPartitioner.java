@@ -9,8 +9,8 @@ import org.broadinstitute.sv.util.fasta.IndexedFastaFile;
 import jaligner.Alignment;
 import jaligner.NeedlemanWunschGotoh;
 import jaligner.Sequence;
-import jaligner.matrix.MatrixLoader;
-import jaligner.matrix.MatrixLoaderException;
+import jaligner.matrix.Matrix;
+import jaligner.matrix.MatrixGenerator;
 
 import org.broadinstitute.gatk.utils.commandline.Argument;
 import org.broadinstitute.gatk.utils.commandline.Input;
@@ -21,9 +21,12 @@ import java.util.*;
 public class VNTRPartitioner extends CommandLineProgram {
 
 	private static final String DEFAULT_MUSCLE_EXECUTABLE = "/humgen/cnp04/sandbox/bobh/muscle/muscle";
-	private static final String USER = "yiming@handsake-vm.broadinstitute.org";
-	private static final String MATRIX = "Z:\\sandbox\\bobh\\workspace\\gap_git\\gap\\FeatureDB\\src\\server\\edu\\mit\\broad\\seqserver\\utils\\align\\matrices\\GAP_DNA_IUPAC.res";
-
+	private static final float MATCH = 2;
+	private static final float MISMATCH = -1;
+	private static final float OPEN = 1;
+	private static final float EXTEND = 0.5f;
+	private static Matrix matrix = null;
+	private static char fileSeparator;
 
 	private File mAlignmentOutputFile = null;
 	private File mMuscleOutputFile = null;
@@ -43,6 +46,15 @@ public class VNTRPartitioner extends CommandLineProgram {
 	@Argument(fullName="identifier", shortName="I", doc="VNTR identifier", required=true)
 	private String mIdentifier = null;
 
+	@Argument(fullName="outputDirectory", shortName="O", doc="Root output directory", required=true)
+	private String mOutputDirectory = null;
+
+	@Argument(fullName="updatedRegion", shortName="U", doc="Updated scan directory", required=true)
+	private String mUpdatedRegion = null;
+	
+	@Argument(fullName="username", shortName="N", doc="SSH username", required=false)
+	private String mUsername = null;
+
 	@Argument(fullName="contextBefore", shortName="B", doc="Number of periods of context before", required=false)
 	private Integer mContextBefore = null;
 
@@ -54,14 +66,12 @@ public class VNTRPartitioner extends CommandLineProgram {
 	}
 
 	protected int run() throws IOException {
-
-
-
+		fileSeparator = File.separatorChar;
 		IndexedFastaFile referenceFile = IndexedFastaFile.open(mRefFile);
 
 		GenomeInterval vntrInterval = parseNewInterval();
 		int modePeriod = computeModeFrequency(vntrInterval);
-		
+
 		String vntr = referenceFile.getSequence(vntrInterval);
 		long mP = modePeriod;
 		long len = vntr.length();
@@ -69,11 +79,12 @@ public class VNTRPartitioner extends CommandLineProgram {
 		if(prod > 10000000000L) return 0;
 
 		// Output files
-		mAlignmentOutputFile = new File("Z:\\sandbox\\yiming\\AlignmentFiles\\chr" + vntrInterval.getSequenceName() + "\\" + mIdentifier + ".fasta");
-		mMuscleOutputFile = new File("Z:\\sandbox\\yiming\\MuscleOutputs\\chr" + vntrInterval.getSequenceName() + "\\" + mIdentifier + ".clw");
-		mSortedAlignmentOutputFile = new File("Z:\\sandbox\\yiming\\SortedAlignmentFiles\\chr" + vntrInterval.getSequenceName() + "\\" + mIdentifier + ".txt");
-		mAlignmentScoresOutputFile = new File("Z:\\sandbox\\yiming\\AlignmentScores\\chr" + vntrInterval.getSequenceName() + "\\" + mIdentifier + ".txt");
+		mAlignmentOutputFile = new File(mOutputDirectory + fileSeparator + "AlignmentFiles" + fileSeparator + "chr" + vntrInterval.getSequenceName() + fileSeparator + mIdentifier + ".fasta");
+		mMuscleOutputFile = new File(mOutputDirectory + fileSeparator + "MuscleOutputs" + fileSeparator + "chr" + vntrInterval.getSequenceName() + fileSeparator + mIdentifier + ".clw");
+		mSortedAlignmentOutputFile = new File(mOutputDirectory + fileSeparator + "SortedAlignmentFiles" + fileSeparator + "chr" + vntrInterval.getSequenceName() + fileSeparator + mIdentifier + ".txt");
+		mAlignmentScoresOutputFile = new File(mOutputDirectory + fileSeparator + "AlignmentScores" + fileSeparator + "chr" + vntrInterval.getSequenceName() + fileSeparator + mIdentifier + ".txt");
 
+		matrix = MatrixGenerator.generate(MATCH, MISMATCH);
 		String initial = vntr.substring(0, modePeriod);
 		List<Integer> localMaxima = new ArrayList<Integer>();
 		float[] scores = new float[vntr.length()-modePeriod];
@@ -82,14 +93,12 @@ public class VNTRPartitioner extends CommandLineProgram {
 			Sequence seq2 = new Sequence(vntr.substring(i, i+modePeriod));
 			Alignment align = null;
 			try {
-				align = NeedlemanWunschGotoh.align(seq1, seq2, MatrixLoader.load(MATRIX), 2f, 0.5f);
-			} catch (MatrixLoaderException e) {
-				// TODO Auto-generated catch block
+				align = NeedlemanWunschGotoh.align(seq1, seq2, matrix, OPEN, EXTEND);
+			} catch (Exception e) {
 				e.printStackTrace();
 			}
-			//			scores[i] = FuzzySearch.ratio(initial, vntr.substring(i, i+modePeriod));
 			scores[i] = align.getScore();
-			System.out.println("index: " + i + ", score: " + scores[i]);
+			//			System.out.println("index: " + i + ", score: " + scores[i]);
 		}
 
 		printScores(scores, mAlignmentScoresOutputFile);
@@ -159,7 +168,13 @@ public class VNTRPartitioner extends CommandLineProgram {
 
 		bw.close();
 
-		runMuscle(new File(convertToUnix(mAlignmentOutputFile.toString())), new File(convertToUnix(mMuscleOutputFile.toString())));
+		if(runningOnWindows()) {
+			runMuscle(new File(convertToUnix(mAlignmentOutputFile.toString())), new File(convertToUnix(mMuscleOutputFile.toString())));
+		}
+		else {
+			runMuscle(mAlignmentOutputFile, mMuscleOutputFile);
+		}
+		
 		List<String> sortedIntervals = sortIntervals(mMuscleOutputFile);
 
 		BufferedWriter bw1 = new BufferedWriter(new PrintWriter(mSortedAlignmentOutputFile));
@@ -175,6 +190,15 @@ public class VNTRPartitioner extends CommandLineProgram {
 
 		return 0;
 	}
+
+	/**
+	 * Check if operating on windows
+	 * @return
+	 */
+	private static boolean runningOnWindows() { 
+		return (fileSeparator == '\\');
+	}
+
 
 	/**
 	 * Prints alignment scores to output file
@@ -240,21 +264,6 @@ public class VNTRPartitioner extends CommandLineProgram {
 	 */
 	private static List<String> sortIntervals(File inputFile) throws IOException {
 		FastaReader fr = new FastaReader(inputFile);
-		//		BufferedReader br = new BufferedReader(new FileReader(inputFile));
-		//
-		//		// discard header and empty lines
-		//		br.readLine();
-		//		br.readLine();
-		//		br.readLine();
-		//
-		//		List<String> lines = new ArrayList<String>();
-		//		String line;
-		//		while((line = br.readLine()).charAt(0) == '[') {
-		//			lines.add(line);
-		//		}
-		//		Collections.sort(lines);
-		//
-		//		br.close();
 
 		List<Line> lines = new ArrayList<Line>();
 		String line;
@@ -282,9 +291,11 @@ public class VNTRPartitioner extends CommandLineProgram {
 	 */
 	private void runMuscle(File inputFile, File outputFile) {
 		List<String> command = new ArrayList<String>();
-		command.add("ssh");
-		command.add("-q");
-		command.add(USER);
+		if(runningOnWindows()) {
+			command.add("ssh");
+			command.add("-q");
+			command.add(mUsername);
+		}
 		command.add((mMuscleExecutable != null) ? mMuscleExecutable : DEFAULT_MUSCLE_EXECUTABLE);
 		command.add("-in");
 		command.add(inputFile.toString().replace('\\', '/'));
@@ -317,8 +328,8 @@ public class VNTRPartitioner extends CommandLineProgram {
 
 	/**
 	 * Formats error message
-	 * @param command
-	 * @return
+	 * @param array of individual commands and parameters
+	 * @return the entire command
 	 */
 	private String formatCommand(String[] command) {
 		StringBuilder builder = new StringBuilder();
@@ -355,7 +366,7 @@ public class VNTRPartitioner extends CommandLineProgram {
 		}
 
 		String id = mIdentifier.substring(start, end);
-		File sitesFile = new File("Z:\\sandbox\\bobh\\projects\\vntrs\\bobh_scan5\\sites\\chr" + id + "\\" + mIdentifier + "\\" + mIdentifier + ".region_updated.dat");
+		File sitesFile = new File(mUpdatedRegion + fileSeparator + "sites" + fileSeparator + "chr" + id + fileSeparator + mIdentifier + fileSeparator + mIdentifier + ".region_updated.dat");
 		BufferedReader br = new BufferedReader(new FileReader(sitesFile));
 
 		br.readLine(); // discard header
@@ -403,25 +414,25 @@ public class VNTRPartitioner extends CommandLineProgram {
 
 	private static class Line implements Comparable<Line>{
 		private String line;
-		
+
 		public Line(String line) {
 			this.line = line;
 		}
-		
+
 		public String getLine() {
 			return line;
 		}
-		
+
 		@Override
-	    public int compareTo(Line other){
-	       int start1 = this.line.indexOf('[') + 1;
-	       int end1 = this.line.indexOf(',');
-	       int start2 = other.getLine().indexOf('[') + 1;
-	       int end2 = other.getLine().indexOf(',');
-	       
-	       return Integer.parseInt(line.substring(start1, end1)) - Integer.parseInt(other.getLine().substring(start2, end2));
-	    }
-		
+		public int compareTo(Line other){
+			int start1 = this.line.indexOf('[') + 1;
+			int end1 = this.line.indexOf(',');
+			int start2 = other.getLine().indexOf('[') + 1;
+			int end2 = other.getLine().indexOf(',');
+
+			return Integer.parseInt(line.substring(start1, end1)) - Integer.parseInt(other.getLine().substring(start2, end2));
+		}
+
 	}
 
 
