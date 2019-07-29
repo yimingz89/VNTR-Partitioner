@@ -9,3 +9,4 @@ java -cp [classpath] partitioner.VNTRPartitioner -S [scan file] -R [reference fi
 * log4j-1.2.15.jar
 * htsjdk-2.19.0-gs.jar
 * commons-lang-2.5.jar
+* reflections-0.9.9-RC1.jar
