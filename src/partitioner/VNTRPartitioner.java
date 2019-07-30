@@ -20,7 +20,7 @@ import java.util.*;
 
 public class VNTRPartitioner extends CommandLineProgram {
 
-	private static final String DEFAULT_MUSCLE_EXECUTABLE = "/humgen/cnp04/sandbox/bobh/muscle/muscle";
+    private static final String DEFAULT_MUSCLE_EXECUTABLE = "/humgen/cnp04/sandbox/bobh/muscle/muscle";
 	private static final float MATCH = 2;
 	private static final float MISMATCH = -1;
 	private static final float OPEN = 1;
@@ -33,9 +33,6 @@ public class VNTRPartitioner extends CommandLineProgram {
 	private File mSortedAlignmentOutputFile = null;
 	private File mAlignmentScoresOutputFile = null;
 	private String mMuscleExecutable = null;
-
-
-
 
 	@Input(fullName="scanFile", shortName="S", doc="VNTR scan file", required=true)
 	private File mScanFile = null;
