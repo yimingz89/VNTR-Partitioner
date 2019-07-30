@@ -24,7 +24,6 @@ import java.util.*;
  * (supposedly consensus) sequence. Alignment scores are then calculated from these Smith-Waterman alignments and estimated start indices
  * for new periods are calculated from the local maxima indices.
  * @author yiming
- *
  */
 public class SmithWatermanVNTRPartitioner extends CommandLineProgram {
 
@@ -34,6 +33,8 @@ public class SmithWatermanVNTRPartitioner extends CommandLineProgram {
     private static final float MISMATCH = -1;
     private static final float OPEN = 2;
     private static final float EXTEND = 0.5f;
+    private static final int CONTEXT_PERIODS_BEFORE = 20;
+    private static final int CONTEXT_PERIODS_AFTER = 20;
     private static char fileSeparator;
     private Matrix matrix = null;
     
@@ -44,6 +45,7 @@ public class SmithWatermanVNTRPartitioner extends CommandLineProgram {
     private File mMuscleOutputFile = null;
     private File mSortedAlignmentOutputFile = null;
     private File mAlignmentScoresOutputFile = null;
+    private File mContextFile = null;
     private String mMuscleExecutable = null;
 
 
@@ -78,15 +80,28 @@ public class SmithWatermanVNTRPartitioner extends CommandLineProgram {
 
         GenomeInterval vntrInterval = parseNewInterval();
         int modePeriod = computeModeFrequency(vntrInterval);
+        
+        GenomeInterval beforeInterval = new GenomeInterval(vntrInterval.getSequenceName(), vntrInterval.getStart() - (CONTEXT_PERIODS_BEFORE * modePeriod), vntrInterval.getStart()-1);
+        GenomeInterval afterInterval = new GenomeInterval(vntrInterval.getSequenceName(), vntrInterval.getEnd()+1, vntrInterval.getEnd() + (CONTEXT_PERIODS_AFTER * modePeriod));
 
         String vntr = referenceFile.getSequence(vntrInterval);
+        String contextBefore = referenceFile.getSequence(beforeInterval);
+        String contextAfter = referenceFile.getSequence(afterInterval);
+        
 
         // Output files
-        mAlignmentOutputFile = new File(mOutputDirectory + fileSeparator + "AlignmentFiles" + fileSeparator + "chr" + vntrInterval.getSequenceName() + fileSeparator + mIdentifier + ".fasta");
-        mMuscleOutputFile = new File(mOutputDirectory + fileSeparator + "MuscleOutputs" + fileSeparator + "chr" + vntrInterval.getSequenceName() + fileSeparator + mIdentifier + ".clw");
-        mSortedAlignmentOutputFile = new File(mOutputDirectory + fileSeparator + "SortedAlignmentFiles" + fileSeparator + "chr" + vntrInterval.getSequenceName() + fileSeparator + mIdentifier + ".txt");
-        mAlignmentScoresOutputFile = new File(mOutputDirectory + fileSeparator + "AlignmentScores" + fileSeparator + "chr" + vntrInterval.getSequenceName() + fileSeparator + mIdentifier + ".txt");
+        mAlignmentOutputFile = new File(mOutputDirectory + fileSeparator + "AlignmentFile.fasta");
+        mMuscleOutputFile = new File(mOutputDirectory + fileSeparator + "MuscleOutput.fasta");
+        mSortedAlignmentOutputFile = new File(mOutputDirectory + fileSeparator + "SortedAlignmentFile.txt");
+        mAlignmentScoresOutputFile = new File(mOutputDirectory + fileSeparator + "AlignmentScore.txt");
+        mContextFile = new File(mOutputDirectory + fileSeparator + "Context.txt");
         matrix = MatrixGenerator.generate(MATCH, MISMATCH);
+        
+        // print context
+        BufferedWriter bwContext = new BufferedWriter(new FileWriter(mContextFile));
+        bwContext.write(contextBefore + "\n");
+        bwContext.write(contextAfter + "\n");
+        bwContext.close();
        
         String initial = vntr.substring(0, modePeriod);
         List<Integer> potentialLocalMaxima = new ArrayList<Integer>();
@@ -247,8 +262,9 @@ public class SmithWatermanVNTRPartitioner extends CommandLineProgram {
      */
     private static void printScores(float[][] scores, File outputFile) throws IOException {
         BufferedWriter bw = new BufferedWriter(new FileWriter(outputFile));
+        bw.write("OFFSET\tSCORE\tESTIMATED_START_INDEX\n");
         for(int i=0; i<scores.length; i++) {
-            bw.write(i + " " + scores[i][0] + "\n");
+            bw.write(i + "\t" + scores[i][0] + "\t" + scores[i][1] + "\n");
         }
         bw.close();
     }
