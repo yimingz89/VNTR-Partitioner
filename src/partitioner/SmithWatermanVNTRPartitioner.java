@@ -27,7 +27,7 @@ import java.util.logging.Logger;
  * for new periods are calculated from the local maxima indices.
  * @author yiming
  */
-public class SmithWatermanVNTRPartitioner extends CommandLineProgram {
+public class SWVNTRPartitioner2 extends CommandLineProgram {
 
     private static final String DEFAULT_MUSCLE_EXECUTABLE = "/humgen/cnp04/sandbox/bobh/muscle/muscle";
     private static final int PADDING_DISTANCE = 20;
@@ -74,7 +74,7 @@ public class SmithWatermanVNTRPartitioner extends CommandLineProgram {
 
 
     public static void main(String[] args) throws Exception {
-        run(new SmithWatermanVNTRPartitioner(), args);
+        run(new SWVNTRPartitioner2(), args);
     }
 
     protected int run() throws IOException {
@@ -195,6 +195,8 @@ public class SmithWatermanVNTRPartitioner extends CommandLineProgram {
 //        for(int i=0; i<refinedLocalMaxima.size(); i++) {
 //            System.out.println("Refined local max: " + refinedLocalMaxima.get(i));
 //        }
+        
+        Collections.sort(refinedLocalMaxima);
 
         BufferedWriter bw = new BufferedWriter(new PrintWriter(mAlignmentOutputFile));
         for(int i=0; i<refinedLocalMaxima.size()-1; i++) {
