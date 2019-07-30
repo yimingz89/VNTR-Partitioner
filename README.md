@@ -1,7 +1,7 @@
 # VNTR-Partitioner
 Partitions VNTRs into individual repeating periods and then aligns them using MUSCLE
 ## Usage
-java -cp [classpath] partitioner.VNTRPartitioner -S [scan file] -R [reference file] -I [VNTR identifier]
+java -cp [classpath] partitioner.VNTRPartitioner -S [scan file] -R [reference file] -I [VNTR identifier] -O [Root output directory] -U [Updated scan directory]
 ## Required imports
 * SVToolkit.jar
 * jaligner.jar
