@@ -17,6 +17,8 @@ import org.broadinstitute.gatk.utils.commandline.Input;
 
 import java.io.*;
 import java.util.*;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * Refined VNTR Partitioner which uses Smith-Waterman to align probe sequences in a sliding window fashion to an initial 
@@ -34,6 +36,7 @@ public class SmithWatermanVNTRPartitioner extends CommandLineProgram {
     private static final float EXTEND = 0.5f;
     private static final int CONTEXT_PERIODS_BEFORE = 20;
     private static final int CONTEXT_PERIODS_AFTER = 20;
+    private static final int MAX_ALLOWED_PERIOD = 10000;
     private static char fileSeparator;
     private static Matrix matrix = null;
     
@@ -76,11 +79,16 @@ public class SmithWatermanVNTRPartitioner extends CommandLineProgram {
     }
 
     protected int run() throws IOException {
+        disableJAlignerLogging();
         fileSeparator = File.separatorChar;
         IndexedFastaFile referenceFile = IndexedFastaFile.open(mRefFile);
 
         GenomeInterval vntrInterval = parseNewInterval();
         int estimatedModePeriod = computeModeFrequency(vntrInterval);
+        if (estimatedModePeriod > MAX_ALLOWED_PERIOD) {
+            System.out.println("Cannot run large VNTR with estimated mode period " + estimatedModePeriod);
+            return 0;
+        }
         
         GenomeInterval beforeInterval = new GenomeInterval(vntrInterval.getSequenceName(), vntrInterval.getStart() - (CONTEXT_PERIODS_BEFORE * estimatedModePeriod), vntrInterval.getStart()-1);
         GenomeInterval afterInterval = new GenomeInterval(vntrInterval.getSequenceName(), vntrInterval.getEnd()+1, vntrInterval.getEnd() + (CONTEXT_PERIODS_AFTER * estimatedModePeriod));
@@ -532,6 +540,15 @@ public class SmithWatermanVNTRPartitioner extends CommandLineProgram {
             return Integer.parseInt(line.substring(start1, end1)) - Integer.parseInt(other.getLine().substring(start2, end2));
         }
 
+    }
+    
+    /**
+     * JAligner logs by default.
+     * This method disables the logging.
+     */
+    private static void disableJAlignerLogging() {
+        // Disable JAligner logging, which is on by default.
+        Logger.getLogger(SmithWatermanGotoh.class.getName()).setLevel(Level.OFF);
     }
 
 
