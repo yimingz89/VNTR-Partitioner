@@ -36,10 +36,11 @@ public class SmithWatermanVNTRPartitioner extends CommandLineProgram {
     private static final float EXTEND = 0.5f;
     private static final int CONTEXT_PERIODS_BEFORE = 20;
     private static final int CONTEXT_PERIODS_AFTER = 20;
-    private static final int MAX_ALLOWED_PERIOD = 10000;
+    private static final int MAX_ALLOWED_PERIOD = 1000;
+    private static final long MAX_ALLOWED_COST = 100_000_000_000L;
     private static char fileSeparator;
     private static Matrix matrix = null;
-    
+
 
 
 
@@ -85,11 +86,14 @@ public class SmithWatermanVNTRPartitioner extends CommandLineProgram {
 
         GenomeInterval vntrInterval = parseNewInterval();
         int estimatedModePeriod = computeModeFrequency(vntrInterval);
-        if (estimatedModePeriod > MAX_ALLOWED_PERIOD) {
-            System.out.println("Cannot run large VNTR with estimated mode period " + estimatedModePeriod);
+        long estimatedCost = ((long) vntrInterval.getLength()) * estimatedModePeriod * estimatedModePeriod;
+        if (estimatedModePeriod > MAX_ALLOWED_PERIOD || estimatedCost > MAX_ALLOWED_COST) {
+            System.out.println("Cannot run large VNTR " + mIdentifier +
+                               " with length " + vntrInterval.getLength() +
+                               " and estimated mode period " + estimatedModePeriod);
             return 0;
         }
-        
+
         GenomeInterval beforeInterval = new GenomeInterval(vntrInterval.getSequenceName(), vntrInterval.getStart() - (CONTEXT_PERIODS_BEFORE * estimatedModePeriod), vntrInterval.getStart()-1);
         GenomeInterval afterInterval = new GenomeInterval(vntrInterval.getSequenceName(), vntrInterval.getEnd()+1, vntrInterval.getEnd() + (CONTEXT_PERIODS_AFTER * estimatedModePeriod));
 
