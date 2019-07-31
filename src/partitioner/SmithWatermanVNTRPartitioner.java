@@ -233,7 +233,7 @@ public class SmithWatermanVNTRPartitioner extends CommandLineProgram {
             while(counter < potentialLocalMaxima.size() && scores[potentialLocalMaxima.get(counter)][0] == score && scores[potentialLocalMaxima.get(counter)][1] == estimatedStart) {
                 counter++;
             }
-            if(counter > start+1) {
+            if(counter > start+3) {
                 List<Integer> tiedLocalMax = new ArrayList<Integer>();
                 for(int i=start; i<counter; i++) {
                     tiedLocalMax.add((int) scores[potentialLocalMaxima.get(i)][1]);
