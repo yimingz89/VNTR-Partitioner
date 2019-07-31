@@ -44,6 +44,8 @@ public class SmithWatermanVNTRPartitioner extends CommandLineProgram {
     private File mMuscleOutputFile = null;
     private File mSortedAlignmentOutputFile = null;
     private File mAlignmentScoresOutputFile = null;
+    private File mAlignmentScoresOutputFile2 = null;
+    private File mPeriodsOutputFile = null;
     private File mContextFile = null;
     private String mMuscleExecutable = null;
 
@@ -93,6 +95,8 @@ public class SmithWatermanVNTRPartitioner extends CommandLineProgram {
         mMuscleOutputFile = new File(mOutputDirectory + fileSeparator + "MuscleOutput.fasta");
         mSortedAlignmentOutputFile = new File(mOutputDirectory + fileSeparator + "SortedAlignmentFile.txt");
         mAlignmentScoresOutputFile = new File(mOutputDirectory + fileSeparator + "AlignmentScore.txt");
+        mAlignmentScoresOutputFile2 = new File(mOutputDirectory + fileSeparator + "AlignmentScore1.txt");
+        mPeriodsOutputFile = new File(mOutputDirectory + fileSeparator + "Periods.txt");
         mContextFile = new File(mOutputDirectory + fileSeparator + "Context.txt");
         matrix = MatrixGenerator.generate(MATCH, MISMATCH);
         
@@ -104,6 +108,9 @@ public class SmithWatermanVNTRPartitioner extends CommandLineProgram {
        
         float[][] scores = new float[vntr.length()-estimatedModePeriod][2];
         scores = slidingWindowAlignment(vntr, estimatedModePeriod);
+        
+        // print scores from first sliding window
+        printScores(scores, mAlignmentScoresOutputFile);
         
         List<Integer> estimatedLocalMaxima = refineLocalMaxima(scores, estimatedModePeriod, vntr.length());
         Collections.sort(estimatedLocalMaxima);
@@ -124,7 +131,14 @@ public class SmithWatermanVNTRPartitioner extends CommandLineProgram {
         float[][] updatedScores = slidingWindowAlignment(vntr, modePeriod);
         List<Integer> refinedLocalMaxima = refineLocalMaxima(updatedScores, modePeriod, vntr.length());
 
-        printScores(updatedScores, mAlignmentScoresOutputFile);
+        // print scores from second sliding window
+        printScores(updatedScores, mAlignmentScoresOutputFile2);
+        
+        // print original and new periods
+        BufferedWriter periodWriter = new BufferedWriter(new PrintWriter(mPeriodsOutputFile));
+        periodWriter.write("VNTR_ID\tOLD_PERIOD\tNEW_PERIOD\n");
+        periodWriter.write(mIdentifier + "\t" + estimatedModePeriod + "\t" + modePeriod);
+        periodWriter.close();
 
         BufferedWriter bw = new BufferedWriter(new PrintWriter(mAlignmentOutputFile));
         for(int i=0; i<refinedLocalMaxima.size()-1; i++) {
