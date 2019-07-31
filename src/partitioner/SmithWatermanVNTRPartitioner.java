@@ -7,7 +7,6 @@ import org.broadinstitute.sv.util.fasta.FastaReader;
 import org.broadinstitute.sv.util.fasta.IndexedFastaFile;
 
 import jaligner.Alignment;
-import jaligner.NeedlemanWunschGotoh;
 import jaligner.Sequence;
 import jaligner.SmithWatermanGotoh;
 import jaligner.matrix.Matrix;
@@ -18,8 +17,6 @@ import org.broadinstitute.gatk.utils.commandline.Input;
 
 import java.io.*;
 import java.util.*;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 /**
  * Refined VNTR Partitioner which uses Smith-Waterman to align probe sequences in a sliding window fashion to an initial 
@@ -27,7 +24,7 @@ import java.util.logging.Logger;
  * for new periods are calculated from the local maxima indices.
  * @author yiming
  */
-public class SWVNTRPartitioner2 extends CommandLineProgram {
+public class SmithWatermanVNTRPartitioner extends CommandLineProgram {
 
     private static final String DEFAULT_MUSCLE_EXECUTABLE = "/humgen/cnp04/sandbox/bobh/muscle/muscle";
     private static final int PADDING_DISTANCE = 20;
@@ -37,9 +34,8 @@ public class SWVNTRPartitioner2 extends CommandLineProgram {
     private static final float EXTEND = 0.5f;
     private static final int CONTEXT_PERIODS_BEFORE = 20;
     private static final int CONTEXT_PERIODS_AFTER = 20;
-    private static final int MAX_ALLOWED_PERIOD = 10000;
     private static char fileSeparator;
-    private Matrix matrix = null;
+    private static Matrix matrix = null;
     
 
 
@@ -74,23 +70,18 @@ public class SWVNTRPartitioner2 extends CommandLineProgram {
 
 
     public static void main(String[] args) throws Exception {
-        run(new SWVNTRPartitioner2(), args);
+        run(new SmithWatermanVNTRPartitioner(), args);
     }
 
     protected int run() throws IOException {
-        disableJAlignerLogging();
         fileSeparator = File.separatorChar;
         IndexedFastaFile referenceFile = IndexedFastaFile.open(mRefFile);
 
         GenomeInterval vntrInterval = parseNewInterval();
-        int modePeriod = computeModeFrequency(vntrInterval);
-        if (modePeriod > MAX_ALLOWED_PERIOD) {
-            System.out.println("Cannot run large VNTR with estimated mode period " + modePeriod);
-            return 0;
-        }
+        int estimatedModePeriod = computeModeFrequency(vntrInterval);
         
-        GenomeInterval beforeInterval = new GenomeInterval(vntrInterval.getSequenceName(), vntrInterval.getStart() - (CONTEXT_PERIODS_BEFORE * modePeriod), vntrInterval.getStart()-1);
-        GenomeInterval afterInterval = new GenomeInterval(vntrInterval.getSequenceName(), vntrInterval.getEnd()+1, vntrInterval.getEnd() + (CONTEXT_PERIODS_AFTER * modePeriod));
+        GenomeInterval beforeInterval = new GenomeInterval(vntrInterval.getSequenceName(), vntrInterval.getStart() - (CONTEXT_PERIODS_BEFORE * estimatedModePeriod), vntrInterval.getStart()-1);
+        GenomeInterval afterInterval = new GenomeInterval(vntrInterval.getSequenceName(), vntrInterval.getEnd()+1, vntrInterval.getEnd() + (CONTEXT_PERIODS_AFTER * estimatedModePeriod));
 
         String vntr = referenceFile.getSequence(vntrInterval);
         String contextBefore = referenceFile.getSequence(beforeInterval);
@@ -111,92 +102,29 @@ public class SWVNTRPartitioner2 extends CommandLineProgram {
         bwContext.write(contextAfter + "\n");
         bwContext.close();
        
-        String initial = vntr.substring(0, modePeriod);
-        List<Integer> potentialLocalMaxima = new ArrayList<Integer>();
-        float[][] scores = new float[vntr.length()-modePeriod][2];
-        Sequence seq1 = new Sequence(initial);
-        PrintWriter pw = new PrintWriter(new FileWriter("scores.txt"));
-        for(int i=0; i<vntr.length()-modePeriod; i++) {
-            int start = (i - PADDING_DISTANCE >= 0) ? (i - PADDING_DISTANCE) : 0;
-            int end = (i + modePeriod + PADDING_DISTANCE <= vntr.length()) ? (i + modePeriod + PADDING_DISTANCE) : vntr.length();
-            Sequence seq2 = new Sequence(vntr.substring(start, end));
-            Alignment align = null;
-            try {
-                align = SmithWatermanGotoh.align(seq1, seq2, matrix, OPEN, EXTEND);
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-            scores[i][0] = align.getScore();
-            int initialGapLength = align.getStart1();
-            if(initialGapLength > 0) {
-                scores[i][0] += OPEN + (initialGapLength * EXTEND);
-            }
-            int terminalGapLength = initial.length() - computeNonGapLength(align.getSequence1()) - initialGapLength;
-            if(terminalGapLength > 0) {
-                scores[i][0] += OPEN + (terminalGapLength * EXTEND);
-            }
-
-            scores[i][1] = start + align.getStart2();
-
-
-            //System.out.println("index: " + i + ", score: " + scores[i][0] + ", start: " + scores[i][1]);
-            //pw.println("index: " + i + ", score: " + scores[i][0] + ", start: " + scores[i][1]);
-        }
-        pw.close();
-
-        printScores(scores, mAlignmentScoresOutputFile);
-
-        // TODO: might potentially be a problem when there is no remainder, not sure yet
-        for(int i=1; i<vntr.length()-modePeriod-1; i++) {
-            boolean isLocalMax = true;
-            for(int j=0; j<10; j++) {
-                if(i-j >= 0 && scores[i][0] < scores[i-j][0]) {
-                    isLocalMax = false;
-                    break;
-                }
-                if(i+j < scores[0].length && scores[i][0] < scores[i+j][0]) {
-                    isLocalMax = false;
-                    break;
-                }
-            }
-            // get rid of local maxima at the end, this also might lead to a problem
-            if(i+10 >= scores.length) {
-                isLocalMax = false;
-            }
-            if(isLocalMax) {
-                potentialLocalMaxima.add(i);
-            }
-        }
-
-        /**
-         * If local maxima of equal score occur at consecutive indices, take the floor of the average of the start and end
-         * Note: doesn't always work, as in the case of chr 20
-         * Might want to confirm those with very high scores (e.g. only 1 or 2 bp substitutions), adding both their starts and ends 
-         * to localMaxima, this would avoid this problem but there would still be edge cases that need care
-         */
-        int counter= 0;
-        List<Integer> refinedLocalMaxima = new ArrayList<Integer>();
-        while(counter < potentialLocalMaxima.size()) {
-            int start = counter;
-            float score = scores[potentialLocalMaxima.get(counter)][0];
-            while(counter < potentialLocalMaxima.size() && scores[potentialLocalMaxima.get(counter)][0] == score) {
-                counter++;
-            }
-            if(counter > start+1) {
-                List<Integer> tiedLocalMax = new ArrayList<Integer>();
-                for(int i=start; i<counter; i++) {
-                    tiedLocalMax.add((int) scores[potentialLocalMaxima.get(i)][1]);
-                }
-                refinedLocalMaxima.add(getMostFrequentElement(tiedLocalMax));
-            }
-        }
-
-        //System.out.println("Refined local max: ");
-//        for(int i=0; i<refinedLocalMaxima.size(); i++) {
-//            System.out.println("Refined local max: " + refinedLocalMaxima.get(i));
-//        }
+        float[][] scores = new float[vntr.length()-estimatedModePeriod][2];
+        scores = slidingWindowAlignment(vntr, estimatedModePeriod);
         
-        Collections.sort(refinedLocalMaxima);
+        List<Integer> estimatedLocalMaxima = refineLocalMaxima(scores, estimatedModePeriod, vntr.length());
+        Collections.sort(estimatedLocalMaxima);
+        
+        List<Integer> estimatedLocalMaximaNoRepeats = new ArrayList<Integer>();
+        for(Integer max : estimatedLocalMaxima) {
+            if(!estimatedLocalMaximaNoRepeats.contains(max)) {
+                estimatedLocalMaximaNoRepeats.add(max);
+            }
+        }
+        
+        List<Integer> periods = new ArrayList<Integer>();
+        for(int i=0; i<estimatedLocalMaximaNoRepeats.size()-1; i++) {
+            periods.add(estimatedLocalMaximaNoRepeats.get(i+1) - estimatedLocalMaximaNoRepeats.get(i));
+        }
+        
+        int modePeriod = getMostFrequentElement(periods);
+        float[][] updatedScores = slidingWindowAlignment(vntr, modePeriod);
+        List<Integer> refinedLocalMaxima = refineLocalMaxima(updatedScores, modePeriod, vntr.length());
+
+        printScores(updatedScores, mAlignmentScoresOutputFile);
 
         BufferedWriter bw = new BufferedWriter(new PrintWriter(mAlignmentOutputFile));
         for(int i=0; i<refinedLocalMaxima.size()-1; i++) {
@@ -237,6 +165,88 @@ public class SWVNTRPartitioner2 extends CommandLineProgram {
 
 
         return 0;
+    }
+    
+    private static List<Integer> refineLocalMaxima(float[][] scores, int period, int length) {
+     // TODO: might potentially be a problem when there is no remainder, not sure yet
+        List<Integer> potentialLocalMaxima = new ArrayList<Integer>();
+        for(int i=1; i<length-period-1; i++) {
+            boolean isLocalMax = true;
+            for(int j=0; j<10; j++) {
+                if(i-j >= 0 && scores[i][0] < scores[i-j][0]) {
+                    isLocalMax = false;
+                    break;
+                }
+                if(i+j < scores[0].length && scores[i][0] < scores[i+j][0]) {
+                    isLocalMax = false;
+                    break;
+                }
+            }
+            // get rid of local maxima at the end, this also might lead to a problem
+            if(i+10 >= scores.length) {
+                isLocalMax = false;
+            }
+            if(isLocalMax) {
+                potentialLocalMaxima.add(i);
+            }
+        }
+        
+
+        /**
+         * If local maxima of equal score occur at consecutive indices, take the floor of the average of the start and end
+         * Note: doesn't always work, as in the case of chr 20
+         * Might want to confirm those with very high scores (e.g. only 1 or 2 bp substitutions), adding both their starts and ends 
+         * to localMaxima, this would avoid this problem but there would still be edge cases that need care
+         */
+        int counter= 0;
+        List<Integer> estimatedLocalMaxima = new ArrayList<Integer>();
+        while(counter < potentialLocalMaxima.size()) {
+            int start = counter;
+            float score = scores[potentialLocalMaxima.get(counter)][0];
+            while(counter < potentialLocalMaxima.size() && scores[potentialLocalMaxima.get(counter)][0] == score) {
+                counter++;
+            }
+            if(counter > start+1) {
+                List<Integer> tiedLocalMax = new ArrayList<Integer>();
+                for(int i=start; i<counter; i++) {
+                    tiedLocalMax.add((int) scores[potentialLocalMaxima.get(i)][1]);
+                }
+                estimatedLocalMaxima.add(getMostFrequentElement(tiedLocalMax));
+            }
+        }
+        
+        Collections.sort(estimatedLocalMaxima);
+        return estimatedLocalMaxima;
+    }
+    
+    private static float[][] slidingWindowAlignment(String referenceString, int period) {
+        String initial = referenceString.substring(0, period);
+        float[][] scores = new float[referenceString.length()-period][2];
+        Sequence seq1 = new Sequence(initial);
+        for(int i=0; i<referenceString.length()-period; i++) {
+            int start = (i - PADDING_DISTANCE >= 0) ? (i - PADDING_DISTANCE) : 0;
+            int end = (i + period + PADDING_DISTANCE <= referenceString.length()) ? (i + period + PADDING_DISTANCE) : referenceString.length();
+            Sequence seq2 = new Sequence(referenceString.substring(start, end));
+            Alignment align = null;
+            try {
+                align = SmithWatermanGotoh.align(seq1, seq2, matrix, OPEN, EXTEND);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+            scores[i][0] = align.getScore();
+            int initialGapLength = align.getStart1();
+            if(initialGapLength > 0) {
+                scores[i][0] += OPEN + (initialGapLength * EXTEND);
+            }
+            int terminalGapLength = initial.length() - computeNonGapLength(align.getSequence1()) - initialGapLength;
+            if(terminalGapLength > 0) {
+                scores[i][0] += OPEN + (terminalGapLength * EXTEND);
+            }
+
+            scores[i][1] = start + align.getStart2();
+        }
+        
+        return scores;
     }
     
     /**
@@ -510,13 +520,5 @@ public class SWVNTRPartitioner2 extends CommandLineProgram {
 
     }
 
-    /**
-     * JAligner logs by default.
-     * This method disables the logging.
-     */
-    private static void disableJAlignerLogging() {
-        // Disable JAligner logging, which is on by default.
-        Logger.getLogger(SmithWatermanGotoh.class.getName()).setLevel(Level.OFF);
-    }
 
 }
