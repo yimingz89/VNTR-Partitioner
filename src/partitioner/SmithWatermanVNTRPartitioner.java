@@ -192,7 +192,7 @@ public class SmithWatermanVNTRPartitioner extends CommandLineProgram {
     private static List<Integer> refineLocalMaxima(float[][] scores, int period, int length) {
      // TODO: might potentially be a problem when there is no remainder, not sure yet
         List<Integer> potentialLocalMaxima = new ArrayList<Integer>();
-        for(int i=1; i<length-period-1; i++) {
+        for(int i=0; i<length-period-1; i++) {
             boolean isLocalMax = true;
             for(int j=0; j<10; j++) {
                 if(i-j >= 0 && scores[i][0] < scores[i-j][0]) {
@@ -225,7 +225,8 @@ public class SmithWatermanVNTRPartitioner extends CommandLineProgram {
         while(counter < potentialLocalMaxima.size()) {
             int start = counter;
             float score = scores[potentialLocalMaxima.get(counter)][0];
-            while(counter < potentialLocalMaxima.size() && scores[potentialLocalMaxima.get(counter)][0] == score) {
+            float estimatedStart = scores[potentialLocalMaxima.get(counter)][1];
+            while(counter < potentialLocalMaxima.size() && scores[potentialLocalMaxima.get(counter)][0] == score && scores[potentialLocalMaxima.get(counter)][1] == estimatedStart) {
                 counter++;
             }
             if(counter > start+1) {
