@@ -29,7 +29,7 @@ import java.util.logging.Logger;
 public class SmithWatermanVNTRPartitioner extends CommandLineProgram {
 
     private static final String DEFAULT_MUSCLE_EXECUTABLE = "/humgen/cnp04/sandbox/bobh/muscle/muscle";
-    private static final int PADDING_DISTANCE = 20;
+    private static int PADDING_DISTANCE = 10;
     private static final float MATCH = 2;
     private static final float MISMATCH = -1;
     private static final float OPEN = 2;
@@ -193,8 +193,16 @@ public class SmithWatermanVNTRPartitioner extends CommandLineProgram {
         return 0;
     }
     
+    /**
+     * Refines potential local maxima by getting rid of plateaus on up/down slopes
+     * @param scores scores/"estimated break point" 2D array
+     * @param period mode Period
+     * @param length reference string length
+     * @return refined local maxima
+     */
     private static List<Integer> refineLocalMaxima(float[][] scores, int period, int length) {
-     // TODO: might potentially be a problem when there is no remainder, not sure yet
+    
+        // add all indices with scores not less than their (up to) 20 closest neighbors (10 on each side)
         List<Integer> potentialLocalMaxima = new ArrayList<Integer>();
         for(int i=0; i<length-period-1; i++) {
             boolean isLocalMax = true;
@@ -208,7 +216,8 @@ public class SmithWatermanVNTRPartitioner extends CommandLineProgram {
                     break;
                 }
             }
-            // get rid of local maxima at the end, this also might lead to a problem
+            
+            // get rid of the local maxima at the end (which is not a true peak) the +10 here is arbitrary, can be adjusted to a more optimal value
             if(i+10 >= scores.length) {
                 isLocalMax = false;
             }
@@ -218,12 +227,7 @@ public class SmithWatermanVNTRPartitioner extends CommandLineProgram {
         }
         
 
-        /**
-         * If local maxima of equal score occur at consecutive indices, take the floor of the average of the start and end
-         * Note: doesn't always work, as in the case of chr 20
-         * Might want to confirm those with very high scores (e.g. only 1 or 2 bp substitutions), adding both their starts and ends 
-         * to localMaxima, this would avoid this problem but there would still be edge cases that need care
-         */
+        // refine estimate by using mode "estimated break points" in plateaus of consecutive indices with the same local max score
         int counter= 0;
         List<Integer> estimatedLocalMaxima = new ArrayList<Integer>();
         while(counter < potentialLocalMaxima.size()) {
@@ -233,7 +237,10 @@ public class SmithWatermanVNTRPartitioner extends CommandLineProgram {
             while(counter < potentialLocalMaxima.size() && scores[potentialLocalMaxima.get(counter)][0] == score && scores[potentialLocalMaxima.get(counter)][1] == estimatedStart) {
                 counter++;
             }
-            if(counter > start+3) {
+            // the +5 here can be tweaked depending on if you want to be more or less selective in finding "potential local maxima" to use as break points
+            // there are some false plateaus, e.g. in VNTR_HG19_8_940305_943586, with 0.5 score higher than the nearby true local max (causing "ears) in the
+            // offset vs alignment score graphs)
+            if(counter > start+5) {
                 List<Integer> tiedLocalMax = new ArrayList<Integer>();
                 for(int i=start; i<counter; i++) {
                     tiedLocalMax.add((int) scores[potentialLocalMaxima.get(i)][1]);
@@ -246,13 +253,24 @@ public class SmithWatermanVNTRPartitioner extends CommandLineProgram {
         return estimatedLocalMaxima;
     }
     
+    /**
+     * Slides window of length period across reference String and uses a S-W global with respect to
+     * the "consensus"
+     * @param referenceString reference string
+     * @param period mode period
+     * @return scores/"estimated break point" 2D array
+     */
     private static float[][] slidingWindowAlignment(String referenceString, int period) {
+        int paddingDist = PADDING_DISTANCE;
+        if(PADDING_DISTANCE > period/2) {
+            paddingDist = period/3;
+        }
         String initial = referenceString.substring(0, period);
         float[][] scores = new float[referenceString.length()-period][2];
         Sequence seq1 = new Sequence(initial);
         for(int i=0; i<referenceString.length()-period; i++) {
-            int start = (i - PADDING_DISTANCE >= 0) ? (i - PADDING_DISTANCE) : 0;
-            int end = (i + period + PADDING_DISTANCE <= referenceString.length()) ? (i + period + PADDING_DISTANCE) : referenceString.length();
+            int start = (i - paddingDist >= 0) ? (i - paddingDist) : 0;
+            int end = (i + period + paddingDist <= referenceString.length()) ? (i + period + paddingDist) : referenceString.length();
             Sequence seq2 = new Sequence(referenceString.substring(start, end));
             Alignment align = null;
             try {
@@ -278,7 +296,7 @@ public class SmithWatermanVNTRPartitioner extends CommandLineProgram {
     
     /**
      * Check if operating on windows
-     * @return
+     * @return true (if windows) false (if unix)
      */
     private static boolean runningOnWindows() { 
         return (fileSeparator == '\\');
@@ -371,9 +389,9 @@ public class SmithWatermanVNTRPartitioner extends CommandLineProgram {
 
     /**
      * Reads in muscle output file line by line, sorts intervals, and truncates interval labels
-     * @param inputFile
-     * @return
-     * @throws IOException
+     * @param inputFile  muscle output file
+     * @return sorted muscle outputs
+     * @throws IOException file not found
      */
     private static List<String> sortIntervals(File inputFile) throws IOException {
         FastaReader fr = new FastaReader(inputFile);
@@ -440,8 +458,8 @@ public class SmithWatermanVNTRPartitioner extends CommandLineProgram {
 
     /**
      * Formats error message
-     * @param command
-     * @return
+     * @param command command array
+     * @return command string
      */
     private String formatCommand(String[] command) {
         StringBuilder builder = new StringBuilder();
@@ -457,7 +475,7 @@ public class SmithWatermanVNTRPartitioner extends CommandLineProgram {
     /**
      * Gets the GenomeInterval from the identifier and updated start and end coordinates from the new dotplot file.
      * @return The desired GenomeInterval
-     * @throws IOException
+     * @throws IOException file not found
      */
     private GenomeInterval parseNewInterval() throws IOException {
         int counter = 0;

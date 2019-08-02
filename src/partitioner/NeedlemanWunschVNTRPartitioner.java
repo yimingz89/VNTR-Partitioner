@@ -18,7 +18,14 @@ import org.broadinstitute.gatk.utils.commandline.Input;
 import java.io.*;
 import java.util.*;
 
-public class VNTRPartitioner extends CommandLineProgram {
+/**
+ * Old VNTR Partitioner which uses Needleman-Wunsch to align probe sequences in a sliding window fashion to an initial 
+ * (supposedly consensus) sequence. Alignment scores are then calculated from these N-W alignments and estimated start indices
+ * for new periods are calculated from the local maxima indices. This code might still be useful to generate the score data that is 
+ * used to plot the good offset vs alignment score graphs in R.
+ * @author yiming
+ */
+public class NeedlemanWunschVNTRPartitioner extends CommandLineProgram {
 
     private static final String DEFAULT_MUSCLE_EXECUTABLE = "/humgen/cnp04/sandbox/bobh/muscle/muscle";
 	private static final float MATCH = 2;
@@ -59,7 +66,7 @@ public class VNTRPartitioner extends CommandLineProgram {
 	private Integer mContextAfter = null;
 
 	public static void main(String[] args) throws Exception {
-		run(new VNTRPartitioner(), args);
+		run(new NeedlemanWunschVNTRPartitioner(), args);
 	}
 
 	protected int run() throws IOException {
@@ -95,14 +102,12 @@ public class VNTRPartitioner extends CommandLineProgram {
 				e.printStackTrace();
 			}
 			scores[i] = align.getScore();
-			//			System.out.println("index: " + i + ", score: " + scores[i]);
 		}
 
 		printScores(scores, mAlignmentScoresOutputFile);
 
 		localMaxima.add(0);
 
-		// TODO: might potentially be a problem when there is no remainder, not sure yet
 		for(int i=1; i<vntr.length()-modePeriod-1; i++) {
 			boolean isLocalMax = true;
 			for(int j=0; j<10; j++) {
