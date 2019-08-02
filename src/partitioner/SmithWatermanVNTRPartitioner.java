@@ -29,7 +29,6 @@ import java.util.logging.Logger;
 public class SmithWatermanVNTRPartitioner extends CommandLineProgram {
 
     private static final String DEFAULT_MUSCLE_EXECUTABLE = "/humgen/cnp04/sandbox/bobh/muscle/muscle";
-    private static int PADDING_DISTANCE = 10;
     private static final float MATCH = 2;
     private static final float MISMATCH = -1;
     private static final float OPEN = 2;
@@ -38,11 +37,10 @@ public class SmithWatermanVNTRPartitioner extends CommandLineProgram {
     private static final int CONTEXT_PERIODS_AFTER = 20;
     private static final int MAX_ALLOWED_PERIOD = 1000;
     private static final long MAX_ALLOWED_COST = 100_000_000_000L;
+    
+    private static int PADDING_DISTANCE = 20;
     private static char fileSeparator;
     private static Matrix matrix = null;
-
-
-
 
     private File mAlignmentOutputFile = null;
     private File mMuscleOutputFile = null;
@@ -118,6 +116,7 @@ public class SmithWatermanVNTRPartitioner extends CommandLineProgram {
         bwContext.write(contextAfter + "\n");
         bwContext.close();
        
+        // index: offset, value 1: alignment score, value 2: estimated break point
         float[][] scores = new float[vntr.length()-estimatedModePeriod][2];
         scores = slidingWindowAlignment(vntr, estimatedModePeriod);
         
